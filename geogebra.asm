@@ -1,7 +1,5 @@
 .model small
 
-.stack
-
 .data
 datos_estudiante db "Saul Castellanos",0ah,
                     "201801178",0ah,
@@ -40,10 +38,14 @@ opcion6 db "esta es la opcion 6$"
 opcion7 db "esta es la opcion 7$"
 option_buffer db 02h,?, 02h dup(0)
 wait_msg db "Presione ENTER para continuar$"
+numero_prueba db "65535"
+num_as_string db 6 dup(0)
 
-.186 
+.stack
+
+.286 
 .code
-  .startup
+main PROC
   mov AX, @DATA
   mov DS, AX
 
@@ -79,6 +81,19 @@ wait_msg db "Presione ENTER para continuar$"
 
   ingresar_ecuacion:
     call CLS
+    ;str2num(word ptr_str, byte numero_caracteres)
+    push LENGTHOF numero_prueba
+    push OFFSET numero_prueba
+    call str2num
+    ;num2str(word numero, word ptr_almacenamiento)
+    push OFFSET num_as_string
+    push AX
+    call num2str
+
+    mov BL, LENGTHOF num_as_string
+    mov num_as_string[BX], '$'
+    push OFFSET num_as_string
+    call println
     push OFFSET opcion1
     call println
     call askConfirmation
@@ -129,6 +144,7 @@ wait_msg db "Presione ENTER para continuar$"
   end_program:
     call CLS
     .exit 0
+main ENDP
 
 ;------------------------------------------------------------------------------
 println PROC
@@ -197,7 +213,7 @@ askConfirmation ENDP
 CLS PROC uses AX
 ;Limpia la pantalla
 ;------------------------------------------------------------------------------
-  mov AX, 03h
+  mov AX, 0003h
   int 10h
   ret
 CLS ENDP
@@ -231,4 +247,90 @@ input PROC
   ret 2
 input ENDP
 
-end
+;------------------------------------------------------------------------------
+str2num PROC
+;Convierte un string en un numero.
+;RECIBE:
+; [BP+4], direccion de string en DS
+; [BP+6], longitud de la string en DS
+;RETORNA:
+; AX, numero equivalente a la cadena
+;------------------------------------------------------------------------------
+  push bp
+  mov bp, sp
+  sub sp, 2
+  push SI
+  push BX
+
+  mov SI, [BP+4]                        ;Obtener direccion de String
+  mov word ptr[BP-2], 0ah
+  xor AX, AX                            ;Limpiar AX
+  mov AL, [SI]                          ;Obtener primer caracter
+  sub AL, 30h                           ;Restarle 30h al caracter
+  dec byte ptr[BP+6]                    ;Disminuir numero de chars a leer
+
+  conv_char:
+  inc SI
+  xor BX, BX
+  mov BL, [SI]                          ;Tomar siguiente caracter
+  sub BL, 30h                           ;Restarle 30h al caracter
+  mul word ptr[BP-2]                    ;Multiplicarle 0ah al resultado actual
+  add AX,BX                             ;Sumarle caracter actual al resultado
+  dec byte ptr[BP+6]                    ;Disminuir numero de chars a leer
+  cmp byte ptr[BP+6], 0                 ;Ya leimos todos los caracteres?
+  jne conv_char                         ;No, repetir hasta leer todos los caracteres
+
+  pop BX
+  pop SI
+  mov sp, bp
+  pop bp
+  ret 4
+str2num ENDP
+
+;------------------------------------------------------------------------------
+num2str PROC
+;Convierte un numero en una String.
+;RECIBE:
+; [BP+4], numero a convertir en String
+; [BP+6], direccion de almacenamiento de String en DS
+;------------------------------------------------------------------------------
+  push bp
+  mov bp, sp
+  sub sp, 4                             ;espacio para 2 variables locales
+  push AX
+  push DX
+  push SI
+
+  mov word ptr[BP-2], 0                 ;conteoNum = 0
+  mov word ptr[BP-4], 0ah               ;divisor = 10
+  mov AX, [BP+4]                        ;Obtener el numero a convertir en String
+
+  conv_num:
+  xor DX, DX                            ;Limpiar DX
+  div word ptr[BP-4]                    ;ax/divisor
+  push DX                               ;Enviar el resisudo a la pila
+  inc word ptr[BP-2]                    ;conteoNum++
+  cmp AX, 0                             ;Ya llegamos al ultimo digito del numero?
+  jne conv_num                          ;No, repetir hasta llegar al ultimo digito
+
+  xor SI, SI
+  mov SI, [BP+6]                        ;Obtener direccion de almacenamiento para String
+
+  store_chars:
+  pop DX                                ;Obtener digito al tope de la pila
+  add DX, 30h                           ;Sumarle 30h al digito para convertirlo en caracter
+  mov byte ptr[SI], DL                  ;Almacenar caracter en memoria
+  dec word ptr[BP-2]                    ;conteoNum = conteoNum-1
+  inc SI                                ;Apuntar a siguiente posicion en memoria
+  cmp byte ptr[BP-2], 0                 ;conteoNum == 0
+  jne store_chars                       ;no, repetir hasta sacar todos los numeros
+
+  pop SI
+  pop DX
+  pop AX
+  mov sp, bp
+  pop bp
+  ret 4
+num2str ENDP
+
+end main
