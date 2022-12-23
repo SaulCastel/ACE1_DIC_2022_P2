@@ -232,11 +232,11 @@ input PROC
   mov AH, 0ah
   int 21h
 
-  xor BX, BX
-  xor SI, SI
-  mov BX, DX
-  mov SI, [BX][1]
-  mov byte ptr[BX][SI]+2, '$'
+  xor si, si
+  xor bx, bx
+  mov si, dx
+  mov bl, [si+1]
+  mov byte ptr[si][bx+2], '$'
 
   pop SI
   pop DX
@@ -354,8 +354,6 @@ inputFunctionTermByTerm PROC
   mov word ptr[bp-2], bx
   add word ptr[bp-2], 1
   sub ax, bx
-  mov bl, 2
-  mul bl
   add si, ax                            ;Obtener posicion en array para el coeficiente actual
   xor bx, bx
   mov bx, offset term_msg               ;Mensaje de termino actual
@@ -376,8 +374,8 @@ inputFunctionTermByTerm PROC
   push ax                               ;num_digitos = numero de digitos en input buffer
   push offset term_buffer[3]            ;ptr_string = cadena de texto con el coeficiente del termino
   call str2num                          ;str2num(word ptr_string, byte num_digitos)
-  mov word ptr[si], ax                  ;Almacernar coeficiente en array
-  add si, 2                             ;Apuntar a siguiente posicion de almacenamiento de coeficientes
+  mov byte ptr[si], al                  ;Almacernar coeficiente en array
+  inc si                                ;Apuntar a siguiente posicion de almacenamiento de coeficientes
   dec word ptr[bp+4]
   dec word ptr[bp-2]
   cmp byte ptr[bp-2], 0                 ;Ya se obtuvo el ultimo coeficiente?
