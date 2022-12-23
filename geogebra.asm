@@ -30,6 +30,10 @@ menu_1_1 db "1. Ingresar ecuacion grado 1.",0ah,
             "Escoja una opcion(1-6): $"
 
 opcion1 db "esta es la opcion 1$"
+terms db 6 dup('C')
+term_buffer db 4, ?, 4 dup(?)
+grade db ?
+term_msg db "Ingresa el coeficiente para X^", ?, '$'
 opcion2 db "esta es la opcion 2$"
 opcion3 db "esta es la opcion 3$"
 opcion4 db "esta es la opcion 4$"
@@ -81,21 +85,15 @@ main PROC
 
   ingresar_ecuacion:
     call CLS
-    ;str2num(word ptr_str, byte numero_caracteres)
-    push LENGTHOF numero_prueba
-    push OFFSET numero_prueba
-    call str2num
-    ;num2str(word numero, word ptr_almacenamiento)
-    push OFFSET num_as_string
-    push AX
-    call num2str
-
-    mov BL, LENGTHOF num_as_string
-    mov num_as_string[BX], '$'
-    push OFFSET num_as_string
+    push offset menu_1_1
     call println
-    push OFFSET opcion1
-    call println
+    push offset option_buffer
+    call input
+    xor ax, ax
+    mov al, option_buffer[2]
+    sub al, 30h
+    push ax
+    call inputFunctionTermByTerm
     call askConfirmation
     jmp mostrar_menu
 
@@ -157,12 +155,12 @@ println PROC
   push AX
   push DX
 
-  mov AH, 09h     ;imprimir una cadena de texto terminada en '$'
-  mov DX, [BP+4]  ;direccion de cadena en memoria en segmento de pila
+  mov AH, 09h                           ;imprimir una cadena de texto terminada en '$'
+  mov DX, [BP+4]                        ;direccion de cadena en memoria en segmento de pila
   int 21h
 
-  mov AH, 02h      ;imprimir caracter a pantalla
-  mov DL, 0ah     ;salto de linea
+  mov AH, 02h                           ;imprimir caracter a pantalla
+  mov DL, 0ah                           ;salto de linea
   int 21h
 
   pop DX
@@ -182,8 +180,8 @@ print PROC
   push AX
   push DX
 
-  mov AH, 09h     ;imprimir una cadena de texto terminada en '$'
-  mov DX, [BP+4]  ;direccion de cadena en memoria en segmento de pila
+  mov AH, 09h                           ;imprimir una cadena de texto terminada en '$'
+  mov DX, [BP+4]                        ;direccion de cadena en memoria en segmento de pila
   int 21h
 
   pop DX
@@ -196,13 +194,13 @@ print ENDP
 askConfirmation PROC
 ;muestra un mensaje en consola y espera a que se presione la tecla Enter.
 ;------------------------------------------------------------------------------
-  push OFFSET wait_msg   ;Imprimir un mensaje en pantalla
+  push OFFSET wait_msg                  ;Imprimir un mensaje en pantalla
   call println
 
   wait_confirmation:
   mov AH, 00h
   int 16h
-  cmp AX, 1c0dh           ;tecla Enter
+  cmp AX, 1c0dh                         ;tecla Enter
   je confirmation
   jmp wait_confirmation
   confirmation:
@@ -332,5 +330,65 @@ num2str PROC
   pop bp
   ret 4
 num2str ENDP
+
+;------------------------------------------------------------------------------
+inputFunctionTermByTerm PROC
+;Entrada de una funcion grado 'n' ingresando cada termino por separado.
+;Donde 1 < n < 5
+;Cada termino es de la forma (+|-)[0-9]{1-2}
+;RECIBE:
+; [BP+4], grado de la funcion
+;------------------------------------------------------------------------------
+  push bp
+  mov bp, sp
+  sub sp, 2
+  push si
+  push di
+  push bx
+
+  mov si, offset terms                  ;0btener dir. de almacenamiento terminos
+  xor ax, ax
+  mov ax, 5
+  xor bx, bx
+  mov bx, [bp+4]
+  mov word ptr[bp-2], bx
+  add word ptr[bp-2], 1
+  sub ax, bx
+  mov bl, 2
+  mul bl
+  add si, ax                            ;Obtener posicion en array para el coeficiente actual
+  xor bx, bx
+  mov bx, offset term_msg               ;Mensaje de termino actual
+  mov di, lengthof term_msg             ;Obtener longitud de mensaje
+  sub di, 2
+
+  store_terms:
+  mov al, byte ptr[bp+4]                ;Obtener exponente del termino actual
+  add al, 30h                           ;Convertir exponente en caracter
+  mov [bx+di], al                       ;Modificar mensaje del termino actual
+  push bx                               ;ptr_string = mensaje del termino actual
+  call println                          ;println(word ptr_string)
+  push offset term_buffer               ;ptr_input_buffer = input buffer para coeficiente
+  call input                            ;input(word ptr_input_buffer)
+  xor ax, ax
+  mov al, term_buffer[1]                ;Obtener longitud de coeficiente
+  sub al, 1                             ;Restarle 1 a longitud para descartar signo
+  push ax                               ;num_digitos = numero de digitos en input buffer
+  push offset term_buffer[3]            ;ptr_string = cadena de texto con el coeficiente del termino
+  call str2num                          ;str2num(word ptr_string, byte num_digitos)
+  mov word ptr[si], ax                  ;Almacernar coeficiente en array
+  add si, 2                             ;Apuntar a siguiente posicion de almacenamiento de coeficientes
+  dec word ptr[bp+4]
+  dec word ptr[bp-2]
+  cmp byte ptr[bp-2], 0                 ;Ya se obtuvo el ultimo coeficiente?
+  jne store_terms                       ;No, repetir hasta obtener el ultimo coeficiente
+
+  pop bx
+  pop di
+  pop si
+  mov sp, bp
+  pop bp
+  ret 2
+inputFunctionTermByTerm ENDP
 
 end main
