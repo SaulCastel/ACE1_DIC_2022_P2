@@ -34,7 +34,7 @@ term_msg db "Ingresa el coeficiente para X^", ?, ': $'
 ;DATOS PARA OPCION 2
 no_function_msg db "No hay ninguna funcion almacenada$"
 literal_part db "X^", ?, '$'
-coefficient_str db 2 dup(?), '$'
+coefficient_str db 3 dup(?)
 opcion3 db "esta es la opcion 3$"
 opcion4 db "esta es la opcion 4$"
 opcion5 db "esta es la opcion 5$"
@@ -380,6 +380,7 @@ num2str PROC
   cmp byte ptr[BP-2], 0                 ;conteoNum == 0
   jne store_chars                       ;no, repetir hasta sacar todos los numeros
 
+  mov byte ptr[si], '$'
   pop SI
   pop DX
   pop AX
