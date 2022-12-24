@@ -117,40 +117,8 @@ main PROC
     jmp mostrar_menu
 
     start_function:
-    xor si, si
-    xor ax, ax
-    xor di, di
-    xor cl, cl
-    mov si, '5'
-    mov cl, grade
-    sub si, cx
-    mov di, lengthof literal_part
-    sub di, 2
+    call printFunction
 
-    print_function_term:
-    mov dl, term_sign[si]
-    call printChar                      ;Imprimir signo del termino
-    mov dl, '('
-    call printChar                      ;Imprimir parentesis izquierdo
-    push offset coefficient_str
-    xor ax, ax
-    mov al, terms[si]
-    push ax
-    call num2str                        ;Convervir coeficiente en un String
-    push offset coefficient_str
-    call print                          ;Imprimir coeficiente
-    mov dl, ')'
-    call printChar                      ;Imprimir parentesis derecho
-    mov literal_part[di], cl
-    push offset literal_part
-    call print                          ;Imprimir parte literal del termino
-    dec cl
-    inc si
-    cmp si, 6
-    jnz print_function_term
-
-    mov dl, 0ah
-    call printChar                      ;Imprimir un salto de linea
     call askConfirmation
     jmp mostrar_menu
 
@@ -164,6 +132,10 @@ main PROC
     jmp mostrar_menu
 
     start_derivative:
+    call printFunction                  ;Imprimir function original antes de derivar
+    push offset derivative_msg
+    call println
+
     xor si, si
     xor ax, ax
     xor di, di
@@ -574,5 +546,49 @@ inputFunctionTermByTerm PROC
   pop bp
   ret 2
 inputFunctionTermByTerm ENDP
+
+;------------------------------------------------------------------------------
+printFunction PROC
+;Imprimir la funcion almacenada como una cadena formateada.
+;------------------------------------------------------------------------------
+  push offset function_msg
+  call println
+
+  xor si, si
+  xor ax, ax
+  xor di, di
+  xor cl, cl
+  mov si, '5'
+  mov cl, grade
+  sub si, cx
+  mov di, lengthof literal_part
+  sub di, 2
+
+  print_function_term:
+  mov dl, term_sign[si]
+  call printChar                        ;Imprimir signo del termino
+  mov dl, '('
+  call printChar                        ;Imprimir parentesis izquierdo
+  push offset coefficient_str
+  xor ax, ax
+  mov al, terms[si]
+  push ax
+  call num2str                          ;Convervir coeficiente en un String
+  push offset coefficient_str
+  call print                            ;Imprimir coeficiente
+  mov dl, ')'
+  call printChar                        ;Imprimir parentesis derecho
+  mov literal_part[di], cl
+  push offset literal_part
+  call print                            ;Imprimir parte literal del termino
+  dec cl
+  inc si
+  cmp si, 6
+  jnz print_function_term
+
+  mov dl, 0ah
+  call printChar                        ;Imprimir un salto de linea
+  ret
+printFunction ENDP
 
 end main
