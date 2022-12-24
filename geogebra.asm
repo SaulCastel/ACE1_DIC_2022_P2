@@ -29,11 +29,13 @@ menu_1_1 db "1. Ingresar ecuacion grado 1.",0ah,
             "6. Volver.",0ah,0ah,
             "Escoja una opcion(1-6): $"
 
-opcion1 db "esta es la opcion 1$"
+;DATOS PARA OPCION 1
 terms db 6 dup('C')
+term_sign db 6 dup('S')
 term_buffer db 4, ?, 4 dup(?)
 grade db ?
-term_msg db "Ingresa el coeficiente para X^", ?, '$'
+regex_msg db "Cada termino debe seguir este formato: (+|-)[0-9]{1,2}$"
+term_msg db "Ingresa el coeficiente para X^", ?, ': $'
 opcion2 db "esta es la opcion 2$"
 opcion3 db "esta es la opcion 3$"
 opcion4 db "esta es la opcion 4$"
@@ -332,10 +334,79 @@ num2str PROC
 num2str ENDP
 
 ;------------------------------------------------------------------------------
+isDigit PROC
+;Verifica si el caracter en AL es un digito.
+;RECIBE:
+; al, caracter a verificar
+;ENTREGA:
+; zf=1, el caracter es un digito
+;------------------------------------------------------------------------------
+  cmp al, '0'                           ;Numero menor que 0?
+  jb not_a_digit                        ;Si, no es digito
+  cmp al, '9'                           ;Numero mayor que 9?
+  ja not_a_digit                        ;Si, no es digito
+  test ax, 0                            ;Setear zf
+  not_a_digit:
+  ret
+isDigit ENDP
+
+;------------------------------------------------------------------------------
+validateCoefficient PROC
+;Validar la sintaxis de un termino.
+;Cada termino es de la forma (+|-)[0-9]{1-2}
+;RECIBE:
+; [bp+4], direccion en DS con coeficiente a evaluar
+; [bp+6], longitud del coeficiente
+;ENTREGA:
+; zf=1, el coeficiente es valido
+;------------------------------------------------------------------------------
+  push bp
+  mov bp, sp
+  push si
+
+  xor si, si
+  stateA:
+  mov si, [bp+4]
+  dec byte ptr[bp+6]
+  cmp byte ptr[si], '+'
+  jz stateB
+  cmp byte ptr[si], '-'
+  jz stateB
+  mov al, 1
+  test al, 1
+  jmp quit_val_coe
+
+  stateB:
+  inc si
+  mov al, [si]
+  dec byte ptr[bp+6]
+  call isDigit
+  jz stateC
+  mov al, 1
+  test al, 1
+  jmp quit_val_coe
+
+  stateC:
+  cmp byte ptr[bp+6], 0
+  jz quit_val_coe
+  inc si
+  mov al, [si]
+  dec byte ptr[bp+6]
+  call isDigit
+  jz stateC
+  mov al, 1
+  test al, 1
+
+  quit_val_coe:
+  pop si
+  pop bp
+  ret 4
+validateCoefficient ENDP
+
+;------------------------------------------------------------------------------
 inputFunctionTermByTerm PROC
 ;Entrada de una funcion grado 'n' ingresando cada termino por separado.
 ;Donde 1 < n < 5
-;Cada termino es de la forma (+|-)[0-9]{1-2}
 ;RECIBE:
 ; [BP+4], grado de la funcion
 ;------------------------------------------------------------------------------
@@ -346,35 +417,47 @@ inputFunctionTermByTerm PROC
   push di
   push bx
 
-  mov si, offset terms                  ;0btener dir. de almacenamiento terminos
   xor ax, ax
   mov ax, 5
   xor bx, bx
-  mov bx, [bp+4]
-  mov word ptr[bp-2], bx
-  add word ptr[bp-2], 1
-  sub ax, bx
+  mov bx, [bp+4]                        ;Obtener grado de la funcion
+  mov word ptr[bp-2], bx                ;Almacenar localmente grado del polinomio
+  add word ptr[bp-2], 1                 ;Sumarle 1 al grado local
+  sub ax, bx                            ;5-grado = corrimiento desde inicio de array de coeficientes
   add si, ax                            ;Obtener posicion en array para el coeficiente actual
   xor bx, bx
   mov bx, offset term_msg               ;Mensaje de termino actual
   mov di, lengthof term_msg             ;Obtener longitud de mensaje
-  sub di, 2
+  sub di, 4                             ;Apuntar di hacia 4 caracteres antes del final de cadena
+  jmp store_terms
 
+  invalid_term:
+  push offset regex_msg                 ;Avisar que el termino ingresado es invalido
+  call println
   store_terms:
   mov al, byte ptr[bp+4]                ;Obtener exponente del termino actual
   add al, 30h                           ;Convertir exponente en caracter
-  mov [bx+di], al                       ;Modificar mensaje del termino actual
+  mov [bx+di], al                       ;Modificar mensaje del termino actual -> "X^{al}"
   push bx                               ;ptr_string = mensaje del termino actual
-  call println                          ;println(word ptr_string)
+  call print                            ;print(word ptr_string)
   push offset term_buffer               ;ptr_input_buffer = input buffer para coeficiente
   call input                            ;input(word ptr_input_buffer)
+  mov ah, 02h
+  mov dl, 0ah
+  int 21h
+  push word ptr term_buffer[1]          ;size = longitud del coeficiente(incluyendo signo)
+  push offset term_buffer[2]            ;ptr_coefficient = direccion de coeficiente en DS
+  call validateCoefficient              ;validateCoefficient(word ptr_coefficient, byte size)
+  jnz invalid_term                      ;No es coeficiente valido, volver a solicitar
+  mov al, term_buffer[2]                ;Obtener signo del coeficiente
+  mov byte ptr term_sign[si], al        ;Almacenar signo en memoria
   xor ax, ax
   mov al, term_buffer[1]                ;Obtener longitud de coeficiente
   sub al, 1                             ;Restarle 1 a longitud para descartar signo
   push ax                               ;num_digitos = numero de digitos en input buffer
   push offset term_buffer[3]            ;ptr_string = cadena de texto con el coeficiente del termino
   call str2num                          ;str2num(word ptr_string, byte num_digitos)
-  mov byte ptr[si], al                  ;Almacernar coeficiente en array
+  mov terms[si], al                     ;Almacernar coeficiente en array
   inc si                                ;Apuntar a siguiente posicion de almacenamiento de coeficientes
   dec word ptr[bp+4]
   dec word ptr[bp-2]
