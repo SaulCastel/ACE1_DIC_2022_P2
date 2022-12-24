@@ -35,7 +35,9 @@ term_msg db "Ingresa el coeficiente para X^", ?, ': $'
 no_function_msg db "No hay ninguna funcion almacenada$"
 literal_part db "X^", ?, '$'
 coefficient_str db 3 dup(?)
-opcion3 db "esta es la opcion 3$"
+function_msg db "La funcion almacenada:$"
+;DATOS PARA OPCION 3
+derivative_msg db "La derivada de la funcion:$"
 opcion4 db "esta es la opcion 4$"
 opcion5 db "esta es la opcion 5$"
 opcion6 db "esta es la opcion 6$"
@@ -108,23 +110,24 @@ main PROC
   imprimir_funcion:                     ;Verificar que haya una funcion ingresada
     call CLS
     cmp grade, 0
-    jnz stored_function
+    jnz start_function
     push offset no_function_msg
     call println
     call askConfirmation
     jmp mostrar_menu
-    stored_function:
+
+    start_function:
     xor si, si
     xor ax, ax
     xor di, di
     xor cl, cl
     mov si, '5'
-    mov al, grade
-    sub si, ax
+    mov cl, grade
+    sub si, cx
     mov di, lengthof literal_part
     sub di, 2
-    mov cl, grade
-    print_term:
+
+    print_function_term:
     mov dl, term_sign[si]
     call printChar                      ;Imprimir signo del termino
     mov dl, '('
@@ -144,7 +147,8 @@ main PROC
     dec cl
     inc si
     cmp si, 6
-    jnz print_term
+    jnz print_function_term
+
     mov dl, 0ah
     call printChar                      ;Imprimir un salto de linea
     call askConfirmation
@@ -152,8 +156,50 @@ main PROC
 
   imprimir_derivada:
     call CLS
-    push OFFSET opcion3
+    cmp grade, 0
+    jnz start_derivative
+    push offset no_function_msg
     call println
+    call askConfirmation
+    jmp mostrar_menu
+
+    start_derivative:
+    xor si, si
+    xor ax, ax
+    xor di, di
+    xor cl, cl
+    mov si, 5
+    mov cl, grade
+    sub cl, 30h
+    sub si, cx
+    mov di, lengthof literal_part
+    sub di, 2
+
+    print_derivative_term:
+    mov dl, term_sign[si]
+    call printChar                      ;Imprimir signo del termino
+    mov dl, '('
+    call printChar                      ;Imprimir parentesis izquierdo
+    mov al, terms[si]                   ;Obtenemos el coeficiente actual
+    mul cl                              ;Lo multiplicamos por el exponente actual
+    push offset coefficient_str
+    push ax
+    call num2str                        ;Convervir coeficiente en un String
+    push offset coefficient_str
+    call print                          ;Imprimir coeficiente
+    mov dl, ')'
+    call printChar                      ;Imprimir parentesis derecho
+    dec cl                              ;Decrementamos el exponente
+    mov literal_part[di], cl
+    add literal_part[di], 30h           ;Convertir exponente en caracter
+    push offset literal_part
+    call print                          ;Imprimir parte literal del termino
+    inc si
+    cmp si, 5                           ;Obviamos X^0 porque es constante
+    jnz print_derivative_term
+
+    mov dl, 0ah
+    call printChar                      ;Imprimir un salto de linea
     call askConfirmation
     jmp mostrar_menu
 
