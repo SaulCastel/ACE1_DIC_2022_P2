@@ -28,10 +28,13 @@ menu_1 db "1. Ingresar ecuacion grado 1.",0ah,
 terms db 6 dup('C')
 term_sign db 6 dup('S')
 term_buffer db 4, ?, 4 dup(?)
-grade db ?
+grade db 0
 regex_msg db "Cada termino debe seguir este formato: (+|-)[0-9]{1,2}$"
 term_msg db "Ingresa el coeficiente para X^", ?, ': $'
-opcion2 db "esta es la opcion 2$"
+;DATOS PARA OPCION 2
+no_function_msg db "No hay ninguna funcion almacenada$"
+literal_part db "X^", ?, '$'
+coefficient_str db 2 dup(?), '$'
 opcion3 db "esta es la opcion 3$"
 opcion4 db "esta es la opcion 4$"
 opcion5 db "esta es la opcion 5$"
@@ -39,8 +42,6 @@ opcion6 db "esta es la opcion 6$"
 opcion7 db "esta es la opcion 7$"
 option_buffer db 02h,?, 02h dup(0)
 wait_msg db "Presione ENTER para continuar$"
-numero_prueba db "65535"
-num_as_string db 6 dup(0)
 
 .stack
 
@@ -95,6 +96,7 @@ main PROC
     ja ingresar_ecuacion                ;Opcion > 6, invalido
     call isDigit
     jnz ingresar_ecuacion               ;Opcion no es un digito, invalido
+    mov grade, al
     xor ax, ax
     mov al, option_buffer[2]
     sub al, 30h
@@ -103,10 +105,48 @@ main PROC
     call askConfirmation
     jmp mostrar_menu
 
-  imprimir_funcion:
+  imprimir_funcion:                     ;Verificar que haya una funcion ingresada
     call CLS
-    push OFFSET opcion2
+    cmp grade, 0
+    jnz stored_function
+    push offset no_function_msg
     call println
+    call askConfirmation
+    jmp mostrar_menu
+    stored_function:
+    xor si, si
+    xor ax, ax
+    xor di, di
+    xor cl, cl
+    mov si, '5'
+    mov al, grade
+    sub si, ax
+    mov di, lengthof literal_part
+    sub di, 2
+    mov cl, grade
+    print_term:
+    mov dl, term_sign[si]
+    call printChar                      ;Imprimir signo del termino
+    mov dl, '('
+    call printChar                      ;Imprimir parentesis izquierdo
+    push offset coefficient_str
+    xor ax, ax
+    mov al, terms[si]
+    push ax
+    call num2str                        ;Convervir coeficiente en un String
+    push offset coefficient_str
+    call print                          ;Imprimir coeficiente
+    mov dl, ')'
+    call printChar                      ;Imprimir parentesis derecho
+    mov literal_part[di], cl
+    push offset literal_part
+    call print                          ;Imprimir parte literal del termino
+    dec cl
+    inc si
+    cmp si, 6
+    jnz print_term
+    mov dl, 0ah
+    call printChar                      ;Imprimir un salto de linea
     call askConfirmation
     jmp mostrar_menu
 
@@ -195,6 +235,17 @@ print PROC
   pop BP
   ret 2
 print ENDP
+
+;------------------------------------------------------------------------------
+printChar PROC
+;Imprime un caracter en pantalla.
+;RECIBE:
+; dl, codigo ascii
+;------------------------------------------------------------------------------
+  mov ah, 02h
+  int 21h
+  ret
+printChar ENDP
 
 ;------------------------------------------------------------------------------
 askConfirmation PROC
@@ -420,10 +471,12 @@ inputFunctionTermByTerm PROC
   push si
   push di
   push bx
-
   xor ax, ax
-  mov ax, 5
   xor bx, bx
+  xor di, di
+  xor si, si
+
+  mov ax, 5
   mov bx, [bp+4]                        ;Obtener grado de la funcion
   mov word ptr[bp-2], bx                ;Almacenar localmente grado del polinomio
   add word ptr[bp-2], 1                 ;Sumarle 1 al grado local
@@ -446,9 +499,8 @@ inputFunctionTermByTerm PROC
   call print                            ;print(word ptr_string)
   push offset term_buffer               ;ptr_input_buffer = input buffer para coeficiente
   call input                            ;input(word ptr_input_buffer)
-  mov ah, 02h
   mov dl, 0ah
-  int 21h
+  call printChar
   push word ptr term_buffer[1]          ;size = longitud del coeficiente(incluyendo signo)
   push offset term_buffer[2]            ;ptr_coefficient = direccion de coeficiente en DS
   call validateCoefficient              ;validateCoefficient(word ptr_coefficient, byte size)
