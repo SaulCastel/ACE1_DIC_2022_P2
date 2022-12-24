@@ -16,18 +16,13 @@ menu db "1. Ingresar ecuacion (Funcion).",0ah,
         "8. Salir de la aplicacion.",0ah,0ah,
         "Escoja una opcion(1-8): $"
 
-menu_1 db "1. Ingresar por termino.",0ah,
-          "2. Ingresar ecuacion",0ah,
-          "3. Volver.",0ah,0ah,
-          "Escoja una opcion(1-3): $"
-
-menu_1_1 db "1. Ingresar ecuacion grado 1.",0ah,
-            "2. Ingresar ecuacion grado 2.",0ah,
-            "3. Ingresar ecuacion grado 3.",0ah,
-            "4. Ingresar ecuacion grado 4.",0ah,
-            "5. Ingresar ecuacion grado 5.",0ah,
-            "6. Volver.",0ah,0ah,
-            "Escoja una opcion(1-6): $"
+menu_1 db "1. Ingresar ecuacion grado 1.",0ah,
+          "2. Ingresar ecuacion grado 2.",0ah,
+          "3. Ingresar ecuacion grado 3.",0ah,
+          "4. Ingresar ecuacion grado 4.",0ah,
+          "5. Ingresar ecuacion grado 5.",0ah,
+          "6. Volver.",0ah,0ah,
+          "Escoja una opcion(1-6): $"
 
 ;DATOS PARA OPCION 1
 terms db 6 dup('C')
@@ -87,10 +82,19 @@ main PROC
 
   ingresar_ecuacion:
     call CLS
-    push offset menu_1_1
+    push offset menu_1
     call println
     push offset option_buffer
     call input
+    mov al, option_buffer[2]
+    cmp al, '0'
+    jz ingresar_ecuacion                ;Opcion = 0, invalido
+    cmp al, '6'
+    jz mostrar_menu                     ;Opcion = 6, volver a menu anterior
+    cmp al, '6'
+    ja ingresar_ecuacion                ;Opcion > 6, invalido
+    call isDigit
+    jnz ingresar_ecuacion               ;Opcion no es un digito, invalido
     xor ax, ax
     mov al, option_buffer[2]
     sub al, 30h
