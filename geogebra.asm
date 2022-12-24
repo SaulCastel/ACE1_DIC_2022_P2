@@ -31,14 +31,19 @@ term_buffer db 4, ?, 4 dup(?)
 grade db 0
 regex_msg db "Cada termino debe seguir este formato: (+|-)[0-9]{1,2}$"
 term_msg db "Ingresa el coeficiente para X^", ?, ': $'
+
 ;DATOS PARA OPCION 2
 no_function_msg db "No hay ninguna funcion almacenada$"
 literal_part db "X^", ?, '$'
 coefficient_str db 3 dup(?)
 function_msg db "La funcion almacenada:$"
+
 ;DATOS PARA OPCION 3
 derivative_msg db "La derivada de la funcion:$"
-opcion4 db "esta es la opcion 4$"
+
+;DATOS PARA OPCION 4
+integral_msg db "La integral de la funcion:$"
+
 opcion5 db "esta es la opcion 5$"
 opcion6 db "esta es la opcion 6$"
 opcion7 db "esta es la opcion 7$"
@@ -132,7 +137,7 @@ main PROC
     jmp mostrar_menu
 
     start_derivative:
-    call printFunction                  ;Imprimir function original antes de derivar
+    call printFunction                  ;Imprimir funcion original antes de derivar
     push offset derivative_msg
     call println
 
@@ -177,8 +182,72 @@ main PROC
 
   imprimir_integral:
     call CLS
-    push OFFSET opcion4
+    cmp grade, 0
+    jnz start_integral
+    push offset no_function_msg
     call println
+    call askConfirmation
+    jmp mostrar_menu
+
+    start_integral:
+    call printFunction                  ;Imprimir funcion original antes de integrar
+    push offset integral_msg
+    call println
+
+    xor si, si
+    xor di, di
+    xor cl, cl
+    mov si, 5
+    mov cl, grade
+    sub cl, 30h
+    sub si, cx
+    mov di, lengthof literal_part
+    sub di, 2
+
+    print_integral_term:
+    mov dl, term_sign[si]
+    call printChar                      ;Imprimir signo del termino
+    mov dl, '('
+    call printChar                      ;Imprimir parentesis izquierdo
+    xor ax, ax
+    mov al, terms[si]                   ;Obtenemos el coeficiente actual
+    push offset coefficient_str
+    push ax
+    call num2str                        ;Convervir coeficiente en un String
+    mov bl, cl
+    inc bl                              ;Incrementamos el exponente
+    div bl                              ;Dividimos por el exponente
+    cmp ah, 0                           ;El residuo es cero?
+    jz print_normally                   ;Si, imprimir numero normalmente
+                                        ;No, imprimir como racional
+    push offset coefficient_str
+    call print                          ;Imprimir coeficiente
+    mov dl, '/'
+    call printChar                      ;Imprimir diagonal
+    mov dl, bl
+    add dl, 30h                         ;Convertir exponente en caracter
+    call printChar                      ;Imprimir exponente
+    jmp print_paren
+    print_normally:
+    push offset coefficient_str
+    push ax
+    call num2str
+    push offset coefficient_str
+    call print                          ;Imprimir coeficiente
+    print_paren:
+    mov dl, ')'
+    call printChar                      ;Imprimir parentesis derecho
+    mov literal_part[di], bl
+    add literal_part[di], 30h           ;Convertir exponente en caracter
+    push offset literal_part
+    call print                          ;Imprimir parte literal del termino
+    inc si
+    dec cl
+    cmp si, 6
+    jnz print_integral_term
+
+    mov dl, 0ah
+    call printChar                      ;Imprimir un salto de linea
     call askConfirmation
     jmp mostrar_menu
 
