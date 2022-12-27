@@ -1,3 +1,4 @@
+.286 
 .model small
 
 .data
@@ -24,11 +25,16 @@ menu_1 db "1. Ingresar ecuacion grado 1.",0ah,
           "6. Volver.",0ah,0ah,
           "Escoja una opcion(1-6): $"
 
+;DATOS PARA POLINOMIOS
+;Coeficientes de las funciones. La 'd' indica el final del arreglo.
+fun_coefficients db 6 dup('F'), 'd'     ;Coeficientes de la funcion original
+der_coefficients db 5 dup('D'), 'd'     ;Coeficientes de la derividada
+int_coefficients db 6 dup('I'), 'd'     ;Coeficientes de la Integral
+term_sign db 6 dup('S')                 ;Signos de cada termino
+grade dw 0                              ;Grado de la funcion original
+
 ;DATOS PARA OPCION 1
-terms db 6 dup('C')
-term_sign db 6 dup('S')
 term_buffer db 4, ?, 4 dup(?)
-grade db 0
 regex_msg db "Cada termino debe seguir este formato: (+|-)[0-9]{1,2}$"
 term_msg db "Ingresa el coeficiente para X^", ?, ': $'
 
@@ -50,9 +56,14 @@ opcion7 db "esta es la opcion 7$"
 option_buffer db 02h,?, 02h dup(0)
 wait_msg db "Presione ENTER para continuar$"
 
+;VARIABLES MODO VIDEO
+savedMode db ?
+xVal dw ?
+yVal dw ?
+debug db 0
+
 .stack
 
-.286 
 .code
 main PROC
   mov AX, @DATA
@@ -94,19 +105,17 @@ main PROC
     call println
     push offset option_buffer
     call input
+    xor ax, ax
     mov al, option_buffer[2]
     cmp al, '0'
     jz ingresar_ecuacion                ;Opcion = 0, invalido
     cmp al, '6'
     jz mostrar_menu                     ;Opcion = 6, volver a menu anterior
-    cmp al, '6'
     ja ingresar_ecuacion                ;Opcion > 6, invalido
     call isDigit
     jnz ingresar_ecuacion               ;Opcion no es un digito, invalido
-    mov grade, al
-    xor ax, ax
-    mov al, option_buffer[2]
     sub al, 30h
+    mov grade, ax                       ;Almacenar grado en memoria
     push ax
     call inputFunctionTermByTerm
     call askConfirmation
@@ -122,7 +131,13 @@ main PROC
     jmp mostrar_menu
 
     start_function:
-    call printFunction
+    push offset function_msg
+    call println
+
+    push grade                          ;exponente: exponente inicial
+    push grade                          ;grado: grado de la funcion
+    push offset fun_coefficients        ;ptr_coeff: puntero al arreglo de coeficientes
+    call printFunction                  ;printFunction(word ptr_coeff, word grado, word exponente)
 
     call askConfirmation
     jmp mostrar_menu
@@ -146,7 +161,7 @@ main PROC
     xor di, di
     xor cl, cl
     mov si, 5
-    mov cl, grade
+    mov cx, grade
     sub cl, 30h
     sub si, cx
     mov di, lengthof literal_part
@@ -157,7 +172,7 @@ main PROC
     call printChar                      ;Imprimir signo del termino
     mov dl, '('
     call printChar                      ;Imprimir parentesis izquierdo
-    mov al, terms[si]                   ;Obtenemos el coeficiente actual
+    mov al, fun_coefficients[si]                   ;Obtenemos el coeficiente actual
     mul cl                              ;Lo multiplicamos por el exponente actual
     push offset coefficient_str
     push ax
@@ -198,7 +213,7 @@ main PROC
     xor di, di
     xor cl, cl
     mov si, 5
-    mov cl, grade
+    mov cx, grade
     sub cl, 30h
     sub si, cx
     mov di, lengthof literal_part
@@ -210,7 +225,7 @@ main PROC
     mov dl, '('
     call printChar                      ;Imprimir parentesis izquierdo
     xor ax, ax
-    mov al, terms[si]                   ;Obtenemos el coeficiente actual
+    mov al, fun_coefficients[si]                   ;Obtenemos el coeficiente actual
     push offset coefficient_str
     push ax
     call num2str                        ;Convervir coeficiente en un String
@@ -574,12 +589,12 @@ inputFunctionTermByTerm PROC
   mov bx, offset term_msg               ;Mensaje de termino actual
   mov di, lengthof term_msg             ;Obtener longitud de mensaje
   sub di, 4                             ;Apuntar di hacia 4 caracteres antes del final de cadena
-  jmp store_terms
+  jmp store_fun_coefficients
 
   invalid_term:
   push offset regex_msg                 ;Avisar que el termino ingresado es invalido
   call println
-  store_terms:
+  store_fun_coefficients:
   mov al, byte ptr[bp+4]                ;Obtener exponente del termino actual
   add al, 30h                           ;Convertir exponente en caracter
   mov [bx+di], al                       ;Modificar mensaje del termino actual -> "X^{al}"
@@ -601,12 +616,12 @@ inputFunctionTermByTerm PROC
   push ax                               ;num_digitos = numero de digitos en input buffer
   push offset term_buffer[3]            ;ptr_string = cadena de texto con el coeficiente del termino
   call str2num                          ;str2num(word ptr_string, byte num_digitos)
-  mov terms[si], al                     ;Almacernar coeficiente en array
+  mov fun_coefficients[si], al          ;Almacernar coeficiente en array
   inc si                                ;Apuntar a siguiente posicion de almacenamiento de coeficientes
   dec word ptr[bp+4]
   dec word ptr[bp-2]
   cmp byte ptr[bp-2], 0                 ;Ya se obtuvo el ultimo coeficiente?
-  jne store_terms                       ;No, repetir hasta obtener el ultimo coeficiente
+  jne store_fun_coefficients            ;No, repetir hasta obtener el ultimo coeficiente
 
   pop bx
   pop di
@@ -618,46 +633,64 @@ inputFunctionTermByTerm ENDP
 
 ;------------------------------------------------------------------------------
 printFunction PROC
-;Imprimir la funcion almacenada como una cadena formateada.
+;Imprimir una funcion como una cadena formateada.
+; RECIBE:
+; [bp+4], direccion del arreglo con coeficientes de la funcion
+; [bp+6], grado de la funcion
+; [bp+8], exponente inicial. Los exponentes van en orden decreciente desde
+;         este grado
 ;------------------------------------------------------------------------------
-  push offset function_msg
-  call println
+  push bp
+  mov bp, sp
+  pusha
 
-  xor si, si
-  xor ax, ax
-  xor di, di
-  xor cl, cl
-  mov si, '5'
-  mov cl, grade
-  sub si, cx
-  mov di, lengthof literal_part
-  sub di, 2
+  xor bx, bx
+  mov bl, 5
+  mov al, [bp+6]                        ;Obtener grado
+  sub bl, al                            ;Corrimiento = 5 - grado
+  mov di, offset term_sign              ;Apuntar DI al arreglo de signos
+  add di, bx                            ;Posicion en arreglo = indice + corrimiento
+  mov si, [bp+4]                        ;Apuntar SI al arreglo de coeficientes
+  add si, bx                            ;Posicion en arreglo = indice + corrimiento
+  mov cl, [bp+8]                        ;Cargar en CL el exponente inicial
 
   print_function_term:
-  mov dl, term_sign[si]
+  mov dl, [di]
   call printChar                        ;Imprimir signo del termino
+  inc di
   mov dl, '('
   call printChar                        ;Imprimir parentesis izquierdo
-  push offset coefficient_str
+
+;# Convertir coeficiente en un string
+  push offset coefficient_str           ;ptr_storage: puntero a ds donde almacenar string de coefiente
   xor ax, ax
-  mov al, terms[si]
-  push ax
-  call num2str                          ;Convervir coeficiente en un String
+  mov al, [si]
+  push ax                               ;number: numero a convertir en string
+  call num2str                          ;num2str(byte number, word ptr_storage)
+  inc si
+
   push offset coefficient_str
   call print                            ;Imprimir coeficiente
   mov dl, ')'
   call printChar                        ;Imprimir parentesis derecho
-  mov literal_part[di], cl
+
+;# Imprimir parte literal del termino
+  mov literal_part[2], cl               ;Indice 2 de literal_part es el byte para el exponente
+  add literal_part[2], 30h              ;Convertir exponente en caracter
   push offset literal_part
   call print                            ;Imprimir parte literal del termino
   dec cl
-  inc si
-  cmp si, 6
-  jnz print_function_term
+
+  cmp byte ptr[si], 'd'                 ;Ya llegamos al final de arreglo?
+  jnz print_function_term               ;No, repetir impresion de termino
+                                        ;Si, terminar procedimiento
 
   mov dl, 0ah
   call printChar                        ;Imprimir un salto de linea
-  ret
+
+  popa
+  pop bp
+  ret 6
 printFunction ENDP
 
 end main
