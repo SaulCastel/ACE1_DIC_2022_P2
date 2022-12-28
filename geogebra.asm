@@ -378,7 +378,7 @@ str2num ENDP
 
 ;------------------------------------------------------------------------------
 num2str PROC
-;Convierte un numero en una String.
+;Almacena en memoria la representacion ASCII del valor absoluto de un numero.
 ;RECIBE:
 ; [BP+4], numero a convertir en String
 ; [BP+6], direccion de almacenamiento de String en DS
@@ -393,6 +393,9 @@ num2str PROC
   mov word ptr[BP-2], 0                 ;conteoNum = 0
   mov word ptr[BP-4], 0ah               ;divisor = 10
   mov AX, [BP+4]                        ;Obtener el numero a convertir en String
+  test ax, ax                           ;Es el numero negativo?
+  jnz conv_num                          ;No, convertir el numero en String
+  neg ax                                ;Si, convertir numero en positivo
 
   conv_num:
   xor DX, DX                            ;Limpiar DX
@@ -535,20 +538,29 @@ inputFunctionTermByTerm PROC
   push offset term_buffer               ;ptr_input_buffer = input buffer para coeficiente
   call input                            ;input(word ptr_input_buffer)
   mov dl, 0ah
-  call printChar
+  call printChar                        ;Insertar un salto de linea
+
+;# Verificar el coeficiente ingresado
   push word ptr term_buffer[1]          ;size = longitud del coeficiente(incluyendo signo)
   push offset term_buffer[2]            ;ptr_coefficient = direccion de coeficiente en DS
   call validateCoefficient              ;validateCoefficient(word ptr_coefficient, byte size)
   jnz invalid_term                      ;No es coeficiente valido, volver a solicitar
-  mov al, term_buffer[2]                ;Obtener signo del coeficiente
-  mov byte ptr term_sign[si], al        ;Almacenar signo en memoria
+
+;# Almacenar coeficiente en memoria
   xor ax, ax
   mov al, term_buffer[1]                ;Obtener longitud de coeficiente
-  sub al, 1                             ;Restarle 1 a longitud para descartar signo
+  sub al, 1                             ;Restarle 1 a longitud para descartar signo al convertir
   push ax                               ;num_digitos = numero de digitos en input buffer
   push offset term_buffer[3]            ;ptr_string = cadena de texto con el coeficiente del termino
   call str2num                          ;str2num(word ptr_string, byte num_digitos)
   mov fun_coefficients[si], al          ;Almacernar coeficiente en array
+  mov al, term_buffer[2]                ;Obtener signo del coeficiente
+  mov byte ptr term_sign[si], al        ;Almacenar signo en memoria
+  cmp al, '-'                           ;Coeficiente negativo?
+  jnz next_term                         ;No, continuar con siguiente termino
+  neg byte ptr term_sign[si]            ;Si, negar coeficiente almacenado
+
+  next_term:
   inc si                                ;Apuntar a siguiente posicion de almacenamiento de coeficientes
   dec word ptr[bp+4]
   dec word ptr[bp-2]
