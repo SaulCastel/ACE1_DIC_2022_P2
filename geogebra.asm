@@ -33,21 +33,17 @@ int_coefficients db 6 dup('I'), 'd'     ;Coeficientes de la Integral
 term_sign db 6 dup('S')                 ;Signos de cada termino
 grade dw 0                              ;Grado de la funcion original
 
-;DATOS PARA OPCION 1
+;DATOS PARA INGRESAR FUNCIONES
 term_buffer db 4, ?, 4 dup(?)
 regex_msg db "Cada termino debe seguir este formato: (+|-)[0-9]{1,2}$"
 term_msg db "Ingresa el coeficiente para X^", ?, ': $'
 
-;DATOS PARA OPCION 2
+;DATOS PARA IMPRIMIR FUNCIONES
 no_function_msg db "No hay ninguna funcion almacenada$"
 literal_part db "X^", ?, '$'
 coefficient_str db 3 dup(?)
 function_msg db "La funcion almacenada:$"
-
-;DATOS PARA OPCION 3
 derivative_msg db "La derivada de la funcion:$"
-
-;DATOS PARA OPCION 4
 integral_msg db "La integral de la funcion:$"
 
 opcion5 db "esta es la opcion 5$"
@@ -152,46 +148,23 @@ main PROC
     jmp mostrar_menu
 
     start_derivative:
-    call printFunction                  ;Imprimir funcion original antes de derivar
+    push offset function_msg
+    call println
+    push grade                          ;exponente: exponente inicial
+    push grade                          ;grado: grado de la funcion
+    push offset fun_coefficients        ;ptr_coeff: puntero al arreglo de coeficientes
+    call printFunction                  ;printFunction(word ptr_coeff, word grado, word exponente)
+
     push offset derivative_msg
     call println
+    call calcDerivative
+    mov ax, grade
+    dec ax
+    push ax                             ;exponente: exponente inicial
+    push grade                          ;grado: grado de la funcion
+    push offset der_coefficients        ;ptr_coeff: puntero al arreglo de coeficientes
+    call printFunction                  ;printFunction(word ptr_coeff, word grado, word exponente)
 
-    xor si, si
-    xor ax, ax
-    xor di, di
-    xor cl, cl
-    mov si, 5
-    mov cx, grade
-    sub cl, 30h
-    sub si, cx
-    mov di, lengthof literal_part
-    sub di, 2
-
-    print_derivative_term:
-    mov dl, term_sign[si]
-    call printChar                      ;Imprimir signo del termino
-    mov dl, '('
-    call printChar                      ;Imprimir parentesis izquierdo
-    mov al, fun_coefficients[si]                   ;Obtenemos el coeficiente actual
-    mul cl                              ;Lo multiplicamos por el exponente actual
-    push offset coefficient_str
-    push ax
-    call num2str                        ;Convervir coeficiente en un String
-    push offset coefficient_str
-    call print                          ;Imprimir coeficiente
-    mov dl, ')'
-    call printChar                      ;Imprimir parentesis derecho
-    dec cl                              ;Decrementamos el exponente
-    mov literal_part[di], cl
-    add literal_part[di], 30h           ;Convertir exponente en caracter
-    push offset literal_part
-    call print                          ;Imprimir parte literal del termino
-    inc si
-    cmp si, 5                           ;Obviamos X^0 porque es constante
-    jnz print_derivative_term
-
-    mov dl, 0ah
-    call printChar                      ;Imprimir un salto de linea
     call askConfirmation
     jmp mostrar_menu
 
@@ -205,64 +178,23 @@ main PROC
     jmp mostrar_menu
 
     start_integral:
-    call printFunction                  ;Imprimir funcion original antes de integrar
+    push offset function_msg
+    call println
+    push grade                          ;exponente: exponente inicial
+    push grade                          ;grado: grado de la funcion
+    push offset fun_coefficients        ;ptr_coeff: puntero al arreglo de coeficientes
+    call printFunction                  ;printFunction(word ptr_coeff, word grado, word exponente)
+
     push offset integral_msg
     call println
+    call calcIntegral
+    mov ax, grade
+    inc ax
+    push ax                             ;exponente: exponente inicial
+    push grade                          ;grado: grado de la funcion
+    push offset int_coefficients        ;ptr_coeff: puntero al arreglo de coeficientes
+    call printFunction                  ;printFunction(word ptr_coeff, word grado, word exponente)
 
-    xor si, si
-    xor di, di
-    xor cl, cl
-    mov si, 5
-    mov cx, grade
-    sub cl, 30h
-    sub si, cx
-    mov di, lengthof literal_part
-    sub di, 2
-
-    print_integral_term:
-    mov dl, term_sign[si]
-    call printChar                      ;Imprimir signo del termino
-    mov dl, '('
-    call printChar                      ;Imprimir parentesis izquierdo
-    xor ax, ax
-    mov al, fun_coefficients[si]                   ;Obtenemos el coeficiente actual
-    push offset coefficient_str
-    push ax
-    call num2str                        ;Convervir coeficiente en un String
-    mov bl, cl
-    inc bl                              ;Incrementamos el exponente
-    div bl                              ;Dividimos por el exponente
-    cmp ah, 0                           ;El residuo es cero?
-    jz print_normally                   ;Si, imprimir numero normalmente
-                                        ;No, imprimir como racional
-    push offset coefficient_str
-    call print                          ;Imprimir coeficiente
-    mov dl, '/'
-    call printChar                      ;Imprimir diagonal
-    mov dl, bl
-    add dl, 30h                         ;Convertir exponente en caracter
-    call printChar                      ;Imprimir exponente
-    jmp print_paren
-    print_normally:
-    push offset coefficient_str
-    push ax
-    call num2str
-    push offset coefficient_str
-    call print                          ;Imprimir coeficiente
-    print_paren:
-    mov dl, ')'
-    call printChar                      ;Imprimir parentesis derecho
-    mov literal_part[di], bl
-    add literal_part[di], 30h           ;Convertir exponente en caracter
-    push offset literal_part
-    call print                          ;Imprimir parte literal del termino
-    inc si
-    dec cl
-    cmp si, 6
-    jnz print_integral_term
-
-    mov dl, 0ah
-    call printChar                      ;Imprimir un salto de linea
     call askConfirmation
     jmp mostrar_menu
 
@@ -692,5 +624,38 @@ printFunction PROC
   pop bp
   ret 6
 printFunction ENDP
+
+calcDerivative PROC uses si cx
+  mov si, 5
+  mov cx, grade
+  sub si, cx
+  calc_der_coeff:
+  mov al, fun_coefficients[si]          ;Obtener coeficiente actual
+  mul cl                                ;Multiplar por el exponente actual
+  dec cl                                ;Restarle 1 al exponente
+  mov byte ptr der_coefficients[si], al          ;Almacenar coeficiente de derivada en memoria
+  inc si
+  cmp si, 5                             ;Obviamos X^0 porque es constante
+  jnz calc_der_coeff
+  ret
+calcDerivative ENDP
+
+calcIntegral PROC uses si cx
+  mov si, 5
+  mov cx, grade
+  sub si, cx
+  inc cx                                ;Sumar 1 al exponente
+  calc_int_coeff:
+  xor ax, ax
+  mov al, fun_coefficients[si]          ;Obtener coeficiente actual
+  div cl                                ;Dividimos por el exponente
+  mov byte ptr int_coefficients[si], al ;Almacenar cociente en arreglo
+  dec cx
+  ;TODO: almacenar parte decimal
+  inc si
+  cmp si, 6                             ;Obviamos X^0 porque es constante
+  jnz calc_int_coeff
+  ret
+calcIntegral ENDP
 
 end main
