@@ -393,9 +393,9 @@ num2str PROC
   mov word ptr[BP-2], 0                 ;conteoNum = 0
   mov word ptr[BP-4], 0ah               ;divisor = 10
   mov AX, [BP+4]                        ;Obtener el numero a convertir en String
-  test ax, ax                           ;Es el numero negativo?
-  jnz conv_num                          ;No, convertir el numero en String
-  neg ax                                ;Si, convertir numero en positivo
+  test al, al                           ;Es el numero negativo?
+  jns conv_num                          ;No, convertir el numero en String
+  neg al                                ;Si, convertir numero en positivo
 
   conv_num:
   xor DX, DX                            ;Limpiar DX
@@ -558,7 +558,7 @@ inputFunctionTermByTerm PROC
   mov byte ptr term_sign[si], al        ;Almacenar signo en memoria
   cmp al, '-'                           ;Coeficiente negativo?
   jnz next_term                         ;No, continuar con siguiente termino
-  neg byte ptr term_sign[si]            ;Si, negar coeficiente almacenado
+  neg byte ptr fun_coefficients[si]     ;Si, negar coeficiente almacenado
 
   next_term:
   inc si                                ;Apuntar a siguiente posicion de almacenamiento de coeficientes
@@ -643,9 +643,9 @@ calcDerivative PROC uses si cx
   sub si, cx
   calc_der_coeff:
   mov al, fun_coefficients[si]          ;Obtener coeficiente actual
-  mul cl                                ;Multiplar por el exponente actual
+  imul cl                               ;Multiplar por el exponente actual
   dec cl                                ;Restarle 1 al exponente
-  mov byte ptr der_coefficients[si], al          ;Almacenar coeficiente de derivada en memoria
+  mov byte ptr der_coefficients[si], al ;Almacenar coeficiente de derivada en memoria
   inc si
   cmp si, 5                             ;Obviamos X^0 porque es constante
   jnz calc_der_coeff
@@ -658,14 +658,14 @@ calcIntegral PROC uses si cx
   sub si, cx
   inc cx                                ;Sumar 1 al exponente
   calc_int_coeff:
-  xor ax, ax
   mov al, fun_coefficients[si]          ;Obtener coeficiente actual
-  div cl                                ;Dividimos por el exponente
+  cbw                                   ;Copiar el msb de AL hacia AH
+  idiv cl                               ;Dividimos por el exponente
   mov byte ptr int_coefficients[si], al ;Almacenar cociente en arreglo
   dec cx
   ;TODO: almacenar parte decimal
   inc si
-  cmp si, 6                             ;Obviamos X^0 porque es constante
+  cmp si, 6
   jnz calc_int_coeff
   ret
 calcIntegral ENDP
