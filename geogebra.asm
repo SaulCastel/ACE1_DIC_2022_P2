@@ -1,6 +1,11 @@
 .286 
 .model small
 
+VIDEO_SEGMENT equ 0a000h
+VIDEO_PALLETE_PORT equ 03c8h            ;Puerto para seleccionar un indice de color
+COLOR_SELECTION_PORT equ 03c9h          ;Puerto para establecer el color del indice
+COLOR_INDEX equ 1                       ;Indice de color a establecer
+spacing = 1
 .data
 datos_estudiante db "Saul Castellanos",0ah,
                     "201801178",0ah,
@@ -25,6 +30,12 @@ menu_1 db "1. Ingresar ecuacion grado 1.",0ah,
           "6. Volver.",0ah,0ah,
           "Escoja una opcion(1-6): $"
 
+menu_4 db "1. Graficar funcion.",0ah,
+          "2. Graficar derivada.",0ah,
+          "3. Graficar integral.",0ah,
+          "4. Volver.",0ah,0ah,
+          "Escoja una opcion(1-4): $"
+
 ;DATOS PARA POLINOMIOS
 ;Coeficientes de las funciones. La 'd' indica el final del arreglo.
 fun_coefficients db 6 dup('F'), 'd'     ;Coeficientes de la funcion original
@@ -34,7 +45,7 @@ term_sign db 6 dup('S')                 ;Signos de cada termino
 grade dw 0                              ;Grado de la funcion original
 
 ;DATOS PARA INGRESAR FUNCIONES
-term_buffer db 4, ?, 4 dup(?)
+numb_buffer db 4, ?, 4 dup(?)
 regex_msg db "Cada termino debe seguir este formato: (+|-)[0-9]{1,2}$"
 term_msg db "Ingresa el coeficiente para X^", ?, ': $'
 
@@ -46,7 +57,6 @@ function_msg db "La funcion almacenada:$"
 derivative_msg db "La derivada de la funcion:$"
 integral_msg db "La integral de la funcion:$"
 
-opcion5 db "esta es la opcion 5$"
 opcion6 db "esta es la opcion 6$"
 opcion7 db "esta es la opcion 7$"
 option_buffer db 02h,?, 02h dup(0)
@@ -54,9 +64,11 @@ wait_msg db "Presione ENTER para continuar$"
 
 ;VARIABLES MODO VIDEO
 savedMode db ?
-xVal dw ?
-yVal dw ?
+xReal dw ?                              ;Coordenada X de la pantalla
+yReal dw ?                              ;Coordenada Y de la pantalla
 debug db 0
+
+aprox_method dw 0400h                   ;Aproximacion hacia abajo
 
 .stack
 
@@ -64,6 +76,10 @@ debug db 0
 main PROC
   mov AX, @DATA
   mov DS, AX
+  fldcw aprox_method                    ;Cambiar el metodo de aproximacion del fpu
+
+  push plotFunction
+  pop ax
 
   call CLS
   push OFFSET datos_estudiante
@@ -200,9 +216,40 @@ main PROC
 
   graficar_funciones:
     call CLS
-    push OFFSET opcion5
+    push OFFSET menu_4
     call println
-    call askConfirmation
+
+    push offset option_buffer
+    call input
+    xor ax, ax
+    mov al, option_buffer[2]
+    call isDigit
+    jnz graficar_funciones              ;Opcion no es un digito, invalido
+    cmp al, '4'
+    jz mostrar_menu                     ;Opcion = 4, volver a menu anterior
+    cmp al, '1'
+    jb graficar_funciones               ;Opcion < 1, no valido
+    cmp al, '3'
+    ja graficar_funciones               ;Opcion > 3. no valido
+
+    call videoMode13                    ;Cambiar a modo de video 13h
+    call drawPlane                      ;Graficar plano
+    push 2
+    push -2
+    push grade
+    push grade
+    push offset fun_coefficients
+    call plotFunction
+    ;Evaluar funcion en rango
+    ;Plotear puntos
+
+    wait_for_esc:                       ;Presionar esc para salir de la grafica
+    mov ah, 00h
+    int 16h
+    cmp ax, 011bh
+    jnz wait_for_esc
+
+    call restoreVideoMode               ;Restaurar el modo de video anteior
     jmp mostrar_menu
 
   metodo_newton:
@@ -535,26 +582,26 @@ inputFunctionTermByTerm PROC
   mov [bx+di], al                       ;Modificar mensaje del termino actual -> "X^{al}"
   push bx                               ;ptr_string = mensaje del termino actual
   call print                            ;print(word ptr_string)
-  push offset term_buffer               ;ptr_input_buffer = input buffer para coeficiente
+  push offset numb_buffer               ;ptr_input_buffer = input buffer para coeficiente
   call input                            ;input(word ptr_input_buffer)
   mov dl, 0ah
   call printChar                        ;Insertar un salto de linea
 
 ;# Verificar el coeficiente ingresado
-  push word ptr term_buffer[1]          ;size = longitud del coeficiente(incluyendo signo)
-  push offset term_buffer[2]            ;ptr_coefficient = direccion de coeficiente en DS
+  push word ptr numb_buffer[1]          ;size = longitud del coeficiente(incluyendo signo)
+  push offset numb_buffer[2]            ;ptr_coefficient = direccion de coeficiente en DS
   call validateCoefficient              ;validateCoefficient(word ptr_coefficient, byte size)
   jnz invalid_term                      ;No es coeficiente valido, volver a solicitar
 
 ;# Almacenar coeficiente en memoria
   xor ax, ax
-  mov al, term_buffer[1]                ;Obtener longitud de coeficiente
+  mov al, numb_buffer[1]                ;Obtener longitud de coeficiente
   sub al, 1                             ;Restarle 1 a longitud para descartar signo al convertir
   push ax                               ;num_digitos = numero de digitos en input buffer
-  push offset term_buffer[3]            ;ptr_string = cadena de texto con el coeficiente del termino
+  push offset numb_buffer[3]            ;ptr_string = cadena de texto con el coeficiente del termino
   call str2num                          ;str2num(word ptr_string, byte num_digitos)
   mov fun_coefficients[si], al          ;Almacernar coeficiente en array
-  mov al, term_buffer[2]                ;Obtener signo del coeficiente
+  mov al, numb_buffer[2]                ;Obtener signo del coeficiente
   mov byte ptr term_sign[si], al        ;Almacenar signo en memoria
   cmp al, '-'                           ;Coeficiente negativo?
   jnz next_term                         ;No, continuar con siguiente termino
@@ -669,5 +716,188 @@ calcIntegral PROC uses si cx
   jnz calc_int_coeff
   ret
 calcIntegral ENDP
+
+;------------------------------------------------------------------------------
+videoMode13 proc
+;Cambiar modo de video a 13h. El registro ES apunta hacia el inicio de la VRAM.
+;RECIBE:
+; ds:debug =  1, no cambiar el modo de video, pero apuntar ES a VRAM.
+;             Esto sirve para depurar el programa en algun depurador
+;             como AFD o Insight.
+;------------------------------------------------------------------------------
+  cmp debug, 1
+  jz vram
+
+  mov ah, 0fh                           ;Guardar el modo de video actual
+  int 10h
+  mov savedMode, al
+
+  mov ax, 0013h                         ;Modo de video 13h (320x200 pixeles, 256 colores)
+  int 10h
+
+  vram:
+  push VIDEO_SEGMENT
+  pop es
+  ret
+videoMode13 endp
+
+;------------------------------------------------------------------------------
+restoreVideoMode proc
+;Regresar al modo de video anterior.
+;------------------------------------------------------------------------------
+  mov ah, 0
+  mov al, savedMode
+  int 10h
+  ret
+restoreVideoMode endp
+
+;------------------------------------------------------------------------------
+screenCoord PROC
+;Realiza el calculo de la posicion en pantalla para las coordenadas (columna,fila).
+;RECIBE:
+; [bp+4], columna
+; [bp+6], fila
+;RETORNA:
+; AX, posicion en memoria de video
+;------------------------------------------------------------------------------
+  push bp
+  mov bp, sp
+
+  mov ax, 320
+  mul word ptr [bp+6]
+  add ax, [bp+4]                        ;Posicion = fila * 320 + columna
+
+  pop bp
+  ret 4
+screenCoord ENDP
+
+;------------------------------------------------------------------------------
+setIndexColor MACRO index,red,green,blue
+;Cambia el color de un indice de la paleta de colores.
+;------------------------------------------------------------------------------
+  push dx
+
+  mov dx, VIDEO_PALLETE_PORT            ;Cargar en dx el puerto de seleccion de indice
+  mov al, index
+  out dx, al                            ;Seleccionar indice
+
+  mov dx, COLOR_SELECTION_PORT          ;Cargar en dx el puerto de la paleta de colores
+  mov al, red                           ;Intensidad Rojo
+  out dx, al                            ;Enviar a puerto
+  mov al, green                         ;Intensidad Verde
+  out dx, al                            ;Enviar a puerto
+  mov al, blue                          ;Intesidad Azul
+  out dx, al                            ;Enviar a puerto
+
+  pop dx
+ENDM
+
+;------------------------------------------------------------------------------
+drawPlane PROC
+;Dibujar el plano cartesiano en pantalla.
+;------------------------------------------------------------------------------
+  setIndexColor COLOR_INDEX,63,63,63    ;Cambiar indice 1 paleta de colores a blanco
+
+  push 100                              ;Fila
+  push 0                                ;Columna
+  call screenCoord                      ;screenCoord(word Fila, word Columna)
+  mov di, ax
+  mov cx, 320
+  draw_x:
+  mov byte ptr es:[di], COLOR_INDEX
+  inc di
+  loop draw_x
+
+  push 0
+  push 160
+  call screenCoord
+  mov di, ax
+  mov cx, 200
+  draw_y:
+  mov byte ptr es:[di], COLOR_INDEX
+  add di, 320
+  loop draw_y
+
+  ret
+drawPlane ENDP
+
+;------------------------------------------------------------------------------
+plotFunction PROC
+;Plotea en pantalla una funcion evaluada sobre un rango.
+;RECIBE:
+; [bp+4], Direccion en memoria de array con coeficientes
+; [bp+6], Grado del polinomio
+; [bp+8], exponente inicial
+; [bp+10], limite inferior de rango
+; [bp+12], limite superior de rango
+;------------------------------------------------------------------------------
+  push bp
+  mov bp, sp
+  sub sp, 6
+  push si
+  push cx
+
+  ;--------VARIABLES LOCALES-----------
+  result  equ word ptr [bp-2]           ;Resultado de avaluar polinomio en un valor de X
+  xVal    equ word ptr [bp-4]           ;Valor que toma X para evaluar el polinomio
+  yVal    equ word ptr [bp-6]           ;Valor que toma Y en el plano cartesiano al plotear puntos
+  ;------------------------------------
+  mov cx, [bp+10]                       ;Cargar limite inferior
+  mov xVal, cx                          ;X inicial es el limite inferior
+
+  range_loop:
+  mov result, 0                         ;Limpiar resultado
+  mov si, [bp+4]                        ;Indexar array de coeficientes con SI
+  add si, 5                             ;Sumarle 5 a la direccion
+  sub si, [bp+6]                        ;Corrimiento = indice array + 5 - grado
+  mov cx, [bp+8]                        ;Cargar exponente inicial
+
+    term_loop:
+    mov ax, xVal                        ;Cargar valor de la X
+    dec cx                              ;Disminuir exponente
+    cmp cx, 0                           ;Exponente 0?
+    jz end_power                        ;Si, Seguir con evaluacion del termino
+    imul xVal                           ;No, multiplicar xVal por si mismo
+    jmp term_loop
+    end_power:
+    imul byte ptr [si]                  ;Muliplicar por coeficiente
+    add result, ax                      ;Sumar termino al resultado
+    inc si                              ;Apuntar a siguiente coeficiente
+    cmp byte ptr[si], 'd'               ;Ya llegamos al final del arreglo de coeficientes?
+    jnz term_loop                       ;No, repetir hasta llegar al final
+
+  push result                           ;Si, empujar resultado a la pila
+  inc xVal                              ;xVal = siguiente valor en el rango
+  mov cx, [bp+12]                       ;Cargar limite superior
+  cmp xVal, cx                          ;Ya es X mayor que rango superior?
+  jna range_loop                        ;No, repetir hasta evaluar el rango entero
+
+  setIndexColor COLOR_INDEX, 63,0,0     ;Color de indice 1 de paleta de colores a Rojo
+  loop_plot:
+  mov xVal, cx                          ;Cargar X cartesiana de mayor a menor
+  pop yVal                              ;Cargar Y cartesiana con ultimo elemento de pila
+  mov ax, 160
+  add ax, xVal
+  mov xReal, ax                         ;Convertir X cartesiana en X de pantalla
+  mov ax, 100
+  sub ax, yVal
+  mov yReal, ax                         ;Convertir Y cartesiana en Y de pantalla
+  push yReal                            ;fila
+  push xReal                            ;columna
+  call screenCoord                      ;screenCoord(word columna, word fila)
+  mov di, ax
+  mov byte ptr es:[di], COLOR_INDEX     ;Enviar color a coordenada en memoria de video
+  dec cx                                ;Decrementamos x
+  mov ax, [bp+10]                       ;Cargamos limite inferior
+  cmp cx, ax                            ;Ya es X menor que limite inferior?
+  jnb loop_plot                         ;No, continuar con ploteo
+                                        ;Si, terminar ploteo
+
+  pop cx
+  pop si
+  mov sp, bp
+  pop bp
+  ret 10
+plotFunction ENDP
 
 end main
