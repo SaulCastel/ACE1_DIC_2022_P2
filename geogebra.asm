@@ -243,6 +243,14 @@ main PROC
 
   graficar_funciones:
     call CLS
+    cmp grade, 0
+    jnz start_plotting
+    push offset no_function_msg
+    call println
+    call askConfirmation
+    jmp mostrar_menu
+
+  start_plotting:
     call videoMode13                    ;Cambiar a modo de video 13h
     call drawPlane                      ;Graficar plano
 
@@ -746,11 +754,19 @@ calcIntegral PROC uses si cx
   inc cx                                ;Sumar 1 al exponente
   calc_int_coeff:
   mov al, fun_coefficients[si]          ;Obtener coeficiente actual
-  cbw                                   ;Copiar el msb de AL hacia AH
+  cmp al, 0                             ;Coeficiente == 0?
+  jz store_al                           ;Si, No operar y solo almacenar
+  cbw                                   ;No, Copiar el msb de AL hacia AH
   idiv cl                               ;Dividimos por el exponente
+  cmp al, 0                             ;Cociente == 0?
+  jz store_1
+  store_al:
   mov byte ptr int_coefficients[si], al ;Almacenar cociente en arreglo
+  jmp next_int_coeff
+  store_1:
+  mov byte ptr int_coefficients[si], 1  ;Almacernar un 1. Tiempos desesperados requieren medidas desesperadas
+  next_int_coeff:
   dec cx
-  ;TODO: almacenar parte decimal
   inc si
   cmp si, 6
   jnz calc_int_coeff
@@ -952,7 +968,7 @@ plotFunction PROC
   mov al, index_color
   draw_thicknes:
   mov byte ptr es:[di], al              ;Enviar color a posicion de memoria para graficar pixel
-  sub di, SCREEN_WIDTH                  ;Graficar 4 puntos por cada punto para agregar grosor a la linea
+  sub di, SCREEN_WIDTH                  ;Graficar 3 puntos por cada punto para agregar grosor a la linea
   loop draw_thicknes
 
   no_graf:
