@@ -1,11 +1,7 @@
 .286 
+
 .model small
 
-VIDEO_SEGMENT equ 0a000h
-VIDEO_PALLETE_PORT equ 03c8h            ;Puerto para seleccionar un indice de color
-COLOR_SELECTION_PORT equ 03c9h          ;Puerto para establecer el color del indice
-COLOR_INDEX equ 1                       ;Indice de color a establecer
-spacing = 1
 .data
 datos_estudiante db "Saul Castellanos",0ah,
                     "201801178",0ah,
@@ -62,24 +58,55 @@ opcion7 db "esta es la opcion 7$"
 option_buffer db 02h,?, 02h dup(0)
 wait_msg db "Presione ENTER para continuar$"
 
-;VARIABLES MODO VIDEO
+old_cw dw ?                             ;Palabra de control del fpu previa a cambios
+fpu_top real8 ?
+
+;CONSTANTES PARA GRAFICAR
+VIDEO_SEGMENT equ 0a000h
+VIDEO_PALLETE_PORT equ 03c8h            ;Puerto para seleccionar un indice de color
+COLOR_SELECTION_PORT equ 03c9h          ;Puerto para establecer el color del indice
+SCREEN_WIDTH dw 320
+SCREEN_HEIGHT dw 200
+Y_ORIGIN dw 100                         ;Coordeanda Y de origen
+;VARIABLES PARA GRAFICAR
 savedMode db ?
-xReal dw ?                              ;Coordenada X de la pantalla
-yReal dw ?                              ;Coordenada Y de la pantalla
+xScreen dw ?                            ;Coordenada X de la pantalla
+yScreen dw ?                            ;Coordenada Y de la pantalla
+xVal real8 0.0                          ;Valor de X para evaluar una funcion
+yVal real8 0.0                          ;Valor de Y respecto a X
+x_increment real8 0.0
+y_increment dw 10
 debug db 0
 
-aprox_method dw 0400h                   ;Aproximacion hacia abajo
-
 .stack
+
+;------------------------------------------------------------------------------
+setIndexColor MACRO index,red,green,blue
+;Cambia el color de un indice de la paleta de colores.
+;------------------------------------------------------------------------------
+  push dx
+
+  mov dx, VIDEO_PALLETE_PORT            ;Cargar en dx el puerto de seleccion de indice
+  mov al, index
+  out dx, al                            ;Seleccionar indice
+
+  mov dx, COLOR_SELECTION_PORT          ;Cargar en dx el puerto de la paleta de colores
+  mov al, red                           ;Intensidad Rojo
+  out dx, al                            ;Enviar a puerto
+  mov al, green                         ;Intensidad Verde
+  out dx, al                            ;Enviar a puerto
+  mov al, blue                          ;Intesidad Azul
+  out dx, al                            ;Enviar a puerto
+
+  pop dx
+ENDM
 
 .code
 main PROC
   mov AX, @DATA
   mov DS, AX
-  fldcw aprox_method                    ;Cambiar el metodo de aproximacion del fpu
-
-  push plotFunction
-  pop ax
+  finit
+  call fpuTruncate
 
   call CLS
   push OFFSET datos_estudiante
@@ -216,32 +243,44 @@ main PROC
 
   graficar_funciones:
     call CLS
-    push OFFSET menu_4
-    call println
-
-    push offset option_buffer
-    call input
-    xor ax, ax
-    mov al, option_buffer[2]
-    call isDigit
-    jnz graficar_funciones              ;Opcion no es un digito, invalido
-    cmp al, '4'
-    jz mostrar_menu                     ;Opcion = 4, volver a menu anterior
-    cmp al, '1'
-    jb graficar_funciones               ;Opcion < 1, no valido
-    cmp al, '3'
-    ja graficar_funciones               ;Opcion > 3. no valido
-
     call videoMode13                    ;Cambiar a modo de video 13h
     call drawPlane                      ;Graficar plano
+
+;# Graficar funcion original
+    setIndexColor 2, 0,63,0             ;Color de indice 2 de paleta de colores a Verde
     push 2
-    push -2
+    push 5
+    push -5
     push grade
     push grade
     push offset fun_coefficients
-    call plotFunction
-    ;Evaluar funcion en rango
-    ;Plotear puntos
+    call plotFunction                   ;plotFunction(ptr_coeff,grado,exponente,lim_inf,lim_sup, color_index)
+
+;# Graficar derivada
+    call calcDerivative                 ;Calcular coeficientes de la derivada
+    setIndexColor 3, 63,0,0             ;Color de indice 3 de paleta de colores a Rojo
+    push 3
+    push 5
+    push -5
+    mov ax, grade
+    dec ax
+    push ax
+    push grade
+    push offset der_coefficients
+    call plotFunction                   ;plotFunction(ptr_coeff,grado,exponente,lim_inf,lim_sup, color_index)
+
+;# Graficar integral
+    call calcIntegral                   ;Calcular coeficientes de la integral
+    setIndexColor 4, 0,0,63             ;Color de indice 4 de paleta de colores a Azul
+    push 4
+    push 5
+    push -5
+    mov ax, grade
+    inc ax
+    push ax
+    push grade
+    push offset int_coefficients
+    call plotFunction                   ;plotFunction(ptr_coeff,grado,exponente,lim_inf,lim_sup, color_index)
 
     wait_for_esc:                       ;Presionar esc para salir de la grafica
     mov ah, 00h
@@ -267,6 +306,7 @@ main PROC
     jmp mostrar_menu
 
   end_program:
+    fldcw old_cw
     call CLS
     .exit 0
 main ENDP
@@ -763,40 +803,19 @@ screenCoord PROC
   push bp
   mov bp, sp
 
-  mov ax, 320
+  mov ax, SCREEN_WIDTH
   mul word ptr [bp+6]
-  add ax, [bp+4]                        ;Posicion = fila * 320 + columna
+  add ax, [bp+4]                        ;Posicion = fila * SCREEN_WIDTH + columna
 
   pop bp
   ret 4
 screenCoord ENDP
 
 ;------------------------------------------------------------------------------
-setIndexColor MACRO index,red,green,blue
-;Cambia el color de un indice de la paleta de colores.
-;------------------------------------------------------------------------------
-  push dx
-
-  mov dx, VIDEO_PALLETE_PORT            ;Cargar en dx el puerto de seleccion de indice
-  mov al, index
-  out dx, al                            ;Seleccionar indice
-
-  mov dx, COLOR_SELECTION_PORT          ;Cargar en dx el puerto de la paleta de colores
-  mov al, red                           ;Intensidad Rojo
-  out dx, al                            ;Enviar a puerto
-  mov al, green                         ;Intensidad Verde
-  out dx, al                            ;Enviar a puerto
-  mov al, blue                          ;Intesidad Azul
-  out dx, al                            ;Enviar a puerto
-
-  pop dx
-ENDM
-
-;------------------------------------------------------------------------------
 drawPlane PROC
 ;Dibujar el plano cartesiano en pantalla.
 ;------------------------------------------------------------------------------
-  setIndexColor COLOR_INDEX,63,63,63    ;Cambiar indice 1 paleta de colores a blanco
+  setIndexColor 1,63,63,63              ;Cambiar indice 1 paleta de colores a blanco
 
   push 100                              ;Fila
   push 0                                ;Columna
@@ -804,7 +823,7 @@ drawPlane PROC
   mov di, ax
   mov cx, 320
   draw_x:
-  mov byte ptr es:[di], COLOR_INDEX
+  mov byte ptr es:[di], 1
   inc di
   loop draw_x
 
@@ -814,12 +833,72 @@ drawPlane PROC
   mov di, ax
   mov cx, 200
   draw_y:
-  mov byte ptr es:[di], COLOR_INDEX
+  mov byte ptr es:[di], 1
   add di, 320
   loop draw_y
 
   ret
 drawPlane ENDP
+
+;------------------------------------------------------------------------------
+evalOnX PROC
+;Evalua un polinomio respecto a X.
+;RECIBE:
+; [bp+4], Exponente inicial
+; ds:si, direccion del primer coeficiente
+;ENTREGA;
+; ds:yVal, resultado de evaluacion
+;------------------------------------------------------------------------------
+  push bp
+  mov bp, sp
+  sub sp, 2
+  push cx
+
+  exponente equ word ptr [bp+4]
+  coeficiente equ word ptr [bp-2]
+
+  fldz                                  ;ST(0)=yVal=0.0
+  load_val:
+  xor ax, ax
+  mov al, [si]
+  cbw                                   ;Extender signo de AL hacia AH
+  mov coeficiente, ax                   ;Almacenar coeficiente en variable local
+  cmp exponente, 0                      ;El exponenente es 0?
+  jz sum_coeff                          ;Si, solamente sumar coeficiente al total
+  fld qword ptr xVal                    ;No,  ST(0)=xVal. Cargar xVal al fpu
+                                        ;     ST(1)=yVal
+  mov cx, exponente                     ;Cargar exponente inicial
+  jmp xVal_to_power                     ;Saltar hacia la parte de exponenciacion
+  sum_coeff:
+  fild coeficiente                      ;Cargar coeficiente al fpu
+  jmp next_term                         ;Saltar hacia la parte de la suma
+
+  xVal_to_power:
+  dec cx                                ;Disminuir exponente
+  cmp cx, 0                             ;Exponente 0?
+  jz end_power                          ;Si, Seguir con evaluacion del termino
+  fmul qword ptr xVal                   ;No,  ST(0)=ST(0)*xVal
+                                        ;     ST(1)=yVal
+  jmp xVal_to_power
+
+  end_power:
+  fimul coeficiente                     ;ST(0)=ST(0)*coeficiente
+                                        ;ST(1)=yVal
+  next_term:
+  fadd                                  ;ST(0)=vaciado
+                                        ;ST(1)=ST(0)+ST(1). ST(1) es nuevo ST(0)
+  inc si                                ;Apuntar a siguiente coeficiente
+  dec exponente                         ;Exponente del siguiente termino
+  cmp byte ptr[si], 'd'                 ;Ya llegamos al final del arreglo de coeficientes?
+  jnz load_val                          ;No, repetir hasta llegar al final
+                                        ;Si, almacenar resultado en memoria
+  fstp qword ptr yVal                   ;ST(0)=vaciado
+
+  pop cx
+  mov sp, bp
+  pop bp
+  ret 2
+evalOnX ENDP
 
 ;------------------------------------------------------------------------------
 plotFunction PROC
@@ -830,74 +909,81 @@ plotFunction PROC
 ; [bp+8], exponente inicial
 ; [bp+10], limite inferior de rango
 ; [bp+12], limite superior de rango
+; [bp+14], indice de color
 ;------------------------------------------------------------------------------
   push bp
   mov bp, sp
-  sub sp, 6
   push si
   push cx
 
-  ;--------VARIABLES LOCALES-----------
-  result  equ word ptr [bp-2]           ;Resultado de avaluar polinomio en un valor de X
-  xVal    equ word ptr [bp-4]           ;Valor que toma X para evaluar el polinomio
-  yVal    equ word ptr [bp-6]           ;Valor que toma Y en el plano cartesiano al plotear puntos
-  ;------------------------------------
-  mov cx, [bp+10]                       ;Cargar limite inferior
-  mov xVal, cx                          ;X inicial es el limite inferior
+  index_color equ byte ptr [bp+14]
+
+  ;# Calculo de incremento de X
+  fild word ptr [bp+12] 
+  fisub word ptr [bp+10]
+  fidiv word ptr SCREEN_WIDTH           ;posfix: lim_sup lim_inf - SCREEN_WIDTH /
+  fstp qword ptr x_increment            ;Incremento de X
+
+  mov xScreen, 0                        ;Empezar a tomar xScreen desde 0
+  fild word ptr [bp+10]                 ;ST(0)=lim_inf
+  fstp qword ptr xVal                   ;xVal=lim_inf
 
   range_loop:
-  mov result, 0                         ;Limpiar resultado
   mov si, [bp+4]                        ;Indexar array de coeficientes con SI
   add si, 5                             ;Sumarle 5 a la direccion
   sub si, [bp+6]                        ;Corrimiento = indice array + 5 - grado
-  mov cx, [bp+8]                        ;Cargar exponente inicial
+  push [bp+8]                           ;exponente
+  call evalOnX                          ;evalOnX(word exponente). Obtener f(x).
 
-    term_loop:
-    mov ax, xVal                        ;Cargar valor de la X
-    dec cx                              ;Disminuir exponente
-    cmp cx, 0                           ;Exponente 0?
-    jz end_power                        ;Si, Seguir con evaluacion del termino
-    imul xVal                           ;No, multiplicar xVal por si mismo
-    jmp term_loop
-    end_power:
-    imul byte ptr [si]                  ;Muliplicar por coeficiente
-    add result, ax                      ;Sumar termino al resultado
-    inc si                              ;Apuntar a siguiente coeficiente
-    cmp byte ptr[si], 'd'               ;Ya llegamos al final del arreglo de coeficientes?
-    jnz term_loop                       ;No, repetir hasta llegar al final
+  fild word ptr Y_ORIGIN
+  fld qword ptr yVal
+  fimul word ptr y_increment
+  fsub                                  ;posfix: Y_ORIGIN yVal y_increment * -
+  fistp word ptr yScreen                ;Almacenar resultado en yScreen
 
-  push result                           ;Si, empujar resultado a la pila
-  inc xVal                              ;xVal = siguiente valor en el rango
-  mov cx, [bp+12]                       ;Cargar limite superior
-  cmp xVal, cx                          ;Ya es X mayor que rango superior?
-  jna range_loop                        ;No, repetir hasta evaluar el rango entero
-
-  setIndexColor COLOR_INDEX, 63,0,0     ;Color de indice 1 de paleta de colores a Rojo
-  loop_plot:
-  mov xVal, cx                          ;Cargar X cartesiana de mayor a menor
-  pop yVal                              ;Cargar Y cartesiana con ultimo elemento de pila
-  mov ax, 160
-  add ax, xVal
-  mov xReal, ax                         ;Convertir X cartesiana en X de pantalla
-  mov ax, 100
-  sub ax, yVal
-  mov yReal, ax                         ;Convertir Y cartesiana en Y de pantalla
-  push yReal                            ;fila
-  push xReal                            ;columna
-  call screenCoord                      ;screenCoord(word columna, word fila)
+  mov ax, SCREEN_HEIGHT
+  cmp yScreen, ax                       ;La coordenada Y es mayor que 200?
+  ja no_graf                            ;Si, no graficar
+  push yScreen
+  push xScreen
+  call screenCoord                      ;Convertir coordenadas a posicion en VRAM
   mov di, ax
-  mov byte ptr es:[di], COLOR_INDEX     ;Enviar color a coordenada en memoria de video
-  dec cx                                ;Decrementamos x
-  mov ax, [bp+10]                       ;Cargamos limite inferior
-  cmp cx, ax                            ;Ya es X menor que limite inferior?
-  jnb loop_plot                         ;No, continuar con ploteo
-                                        ;Si, terminar ploteo
+  mov cx, 3
+  mov al, index_color
+  draw_thicknes:
+  mov byte ptr es:[di], al              ;Enviar color a posicion de memoria para graficar pixel
+  sub di, SCREEN_WIDTH                  ;Graficar 4 puntos por cada punto para agregar grosor a la linea
+  loop draw_thicknes
 
+  no_graf:
+  fld qword ptr xVal                    ;Cargar xVal en fpu
+  fadd x_increment                      ;Sumarle incremento a xVal
+  fstp xVal                             ;Almacenar xVal en memoria
+  inc xScreen                           ;Incrementar xScreen
+  mov ax, SCREEN_WIDTH
+  cmp xScreen, ax                       ;coordenada X ya es la maxima?
+  jnz range_loop                        ;No, seguir ploteo
+                                        ;Si, parar ploteo
   pop cx
   pop si
-  mov sp, bp
   pop bp
-  ret 10
+  ret 12
 plotFunction ENDP
+
+;------------------------------------------------------------------------------
+fpuTruncate PROC
+;Cambaiar el modo de redondeo del fpu a truncar.
+;------------------------------------------------------------------------------
+  fstcw old_cw                          ;Almacenar palabra de control actual
+  fwait                                 ;Esperar a que la operacion termine de realizarse
+  mov ax, old_cw
+  ;and ax, 0f3ffh                        ;Limpiar bits de control sin alterar los otros bits
+  or ax, 0c00h                          ;Setear bits de redondeo a truncar
+  push ax                               ;Empujar palabra modificada a la pila
+  mov bp, sp
+  fldcw [bp]                            ;Cargar palabra de control modifica en el fpu
+  pop ax                                ;Limpiar pila
+  ret
+fpuTruncate ENDP
 
 end main
